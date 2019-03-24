@@ -1,0 +1,29 @@
+[package]
+name = "spirit-derive"
+version = "0.1.0"
+authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+description = "Derive support for the spirit framework"
+documentation = "https://docs.rs/spirit-derive"
+repository = "https://github.com/vorner/spirit"
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+edition = "2018"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
+
+[badges]
+travis-ci = { repository = "vorner/spirit" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+quote = "~0.6"
+proc-macro2 = "~0.4"
+syn = "~0.15.26"
+
+[dev-dependencies]
+version-sync = "~0.7"
+
+[lib]
+proc-macro = true
