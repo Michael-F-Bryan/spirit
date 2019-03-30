@@ -24,7 +24,9 @@ proc-macro2 = "~0.4"
 syn = "~0.15.26"
 
 [dev-dependencies]
+failure = "~0.1"
 version-sync = "~0.7"
+spirit = { version = "~0.3", path = "..", features = ["derive"] }
 
 [lib]
 proc-macro = true

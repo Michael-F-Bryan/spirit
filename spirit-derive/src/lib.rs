@@ -25,6 +25,7 @@ use syn::{
 };
 
 fn instruction(
+    struct_name: &Ident,
     field_name: &Ident,
     field_type: &Type,
     extract_name: &Ident,
@@ -32,10 +33,13 @@ fn instruction(
 ) -> TokenStream {
     match instruction.name().to_string().as_ref() {
         "pipeline" => {
-            let pipeline = quote! {
-                Pipeline::new(stringify!(#field_name))
-                    .extract(#extract_name)
-            };
+            // TODO: Allow overriding extract
+            let pipeline = quote!({
+                let pipeline: spirit::fragment::pipeline::Pipeline<_, _, _, _, (O, #struct_name)> =
+                    spirit::fragment::pipeline::Pipeline::new(stringify!(#field_name))
+                        .extract_cfg(#extract_name);
+                pipeline
+            });
 
             let inner = match instruction {
                 Meta::Word(_) => Either::Left(iter::empty::<&NestedMeta>()),
@@ -52,6 +56,7 @@ fn instruction(
                     let params: Expr = content.parse().unwrap();
                     quote!(#ident(#params))
                 }
+                NestedMeta::Meta(Meta::Word(ident)) => quote!(#ident()),
                 _ => panic!("Pipeline modifiers need to be method = 'content'"),
             });
 
@@ -59,7 +64,7 @@ fn instruction(
         }
         "extension" => {
             // TODO: Optionally extract the name for the method
-            quote!(let builder = builder.with(<#field_type>::extension(#extract_name)))
+            quote!(let builder = builder.with(<#field_type>::extension(#extract_name));)
         }
         "immutable" => quote!(
             let builder = builder.with(spirit::extension::immutable_cfg(
@@ -80,9 +85,10 @@ fn gen_methods(
         let name = field.ident.as_ref().unwrap();
         let ty = &field.ty;
         let extract_name = Ident::new(&format!("_extract_{}", name), name.span());
+        // TODO: Check for cloned attribute
         let extract = quote! {
-            fn #extract_name(cfg: &#struct_name) -> #ty {
-                cfg.#name.clone()
+            fn #extract_name(cfg: &#struct_name) -> &#ty {
+                &cfg.#name
             }
         };
 
@@ -98,7 +104,7 @@ fn gen_methods(
                 Meta::Word(_) => panic!("The spirit attribute needs parameters"),
                 Meta::List(MetaList { nested, .. }) => nested.into_iter().map(|ins| match ins {
                     NestedMeta::Literal(_) => panic!("Unsupported literal inside spirit"),
-                    NestedMeta::Meta(ins) => instruction(name, ty, &extract_name, &ins),
+                    NestedMeta::Meta(ins) => instruction(struct_name, name, ty, &extract_name, &ins),
                 }),
                 Meta::NameValue(_) => panic!("The spirit attribute can't be 'spirit = ...'"),
             })
@@ -107,9 +113,14 @@ fn gen_methods(
         iter::once(extract).chain(pipelines)
     });
     quote! {
-        fn extension<O>(mut builder: spirit::Builder<O, Self>) -> spirit::Builder<O, Self> {
+        fn extension<O>(mut builder: spirit::Builder<O, Self>)
+            -> Result<spirit::Builder<O, Self>, spirit::macro_support::Error>
+        {
+            use spirit::extension::Extensible;
             #(#cmds)*
-            builder
+            // Trick to make it into -> Result<Builder, _> even if the list of .with above is
+            // empty.
+            builder.with(|builder: spirit::Builder<O, Self>| builder)
         }
     }
 }
@@ -132,6 +143,7 @@ pub fn spirit_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         _ => unimplemented!("Only named structs are supported for now"),
     };
 
+    //panic!("{}", (quote! {
     (quote! {
         impl #impl_generics #name #ty_generics
         #where_clause
