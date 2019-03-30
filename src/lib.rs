@@ -434,6 +434,9 @@ pub use crate::fragment::pipeline::Pipeline;
 pub use crate::fragment::Fragment;
 pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 
+#[cfg(feature = "derive")]
+pub use spirit_derive::Spirit;
+
 /// The prelude.
 ///
 /// To use the spirit libraries effectively, a lot of traits and types need to be imported. Instead
