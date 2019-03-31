@@ -4,6 +4,7 @@
 )]
 #![allow(clippy::type_complexity)]
 #![forbid(unsafe_code)]
+#![recursion_limit = "128"]
 
 //! A procedural derive macros for the [`spirit`] crate. See the documentation there.
 //!
@@ -16,13 +17,28 @@ use std::iter;
 
 use either::Either;
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::token::Comma;
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Expr, Field, Fields, Ident, Lit, Meta, MetaList,
     MetaNameValue, NestedMeta, Type,
 };
+
+macro_rules! err {
+    ($span: expr, $text: expr) => {{
+        let span = $span;
+        let text = $text;
+        quote_spanned!(span=> compile_error!(#text)).into()
+    }};
+}
+
+macro_rules! l {
+    ($inner: expr) => {
+        Either::Left(iter::once($inner))
+    };
+}
 
 fn instruction(
     struct_name: &Ident,
@@ -44,7 +60,9 @@ fn instruction(
             let inner = match instruction {
                 Meta::Word(_) => Either::Left(iter::empty::<&NestedMeta>()),
                 Meta::List(MetaList { ref nested, .. }) => Either::Right(nested.iter()),
-                Meta::NameValue(_) => panic!("pipeline = '...' makes no sense"),
+                Meta::NameValue(_) => {
+                    return err!(instruction.span(), "pipeline = \"...\" makes no sense")
+                }
             };
 
             let modifiers = inner.map(|nested| match nested {
@@ -57,7 +75,10 @@ fn instruction(
                     quote!(#ident(#params))
                 }
                 NestedMeta::Meta(Meta::Word(ident)) => quote!(#ident()),
-                _ => panic!("Pipeline modifiers need to be method = 'content'"),
+                _ => err!(
+                    instruction.span(),
+                    "Pipeline modifiers need to be method = \"content\""
+                ),
             });
 
             quote!(let builder = builder.with(#pipeline #( . #modifiers )*);)
@@ -72,7 +93,29 @@ fn instruction(
                 stringify!(#field_name),
             ));
         ),
-        name => panic!("Unknown spirit instruction {}", name),
+        "validate" => match instruction {
+            Meta::Word(_) => err!(instruction.span(), "validate by what?"),
+            Meta::List(_) => err!(instruction.span(), "Should be validate = \"...\""),
+            Meta::NameValue(MetaNameValue {
+                lit: Lit::Str(content),
+                ..
+            }) => {
+                let fun: Expr = content.parse().unwrap();
+                quote! {
+                    let validator = |
+                        _: &std::sync::Arc<#struct_name>,
+                        cfg: &std::sync::Arc<#struct_name>,
+                        _: &O
+                    | {
+                        let val = #extract_name(cfg);
+                        #fun (val).map(|()| spirit::validation::Action::new())
+                    };
+                    let builder = builder.config_validator(validator);
+                }
+            }
+            Meta::NameValue(_) => err!(instruction.span(), "Unsupported validator type literal"),
+        },
+        _ => err!(instruction.span(), "Unknown spirit instruction"),
     }
 }
 
@@ -96,17 +139,26 @@ fn gen_methods(
             .attrs
             .iter()
             .filter(|attr| attr.path.is_ident("spirit"))
-            .map(|attr| {
-                attr.parse_meta()
-                    .expect("Attributes need to be in form spirit(...)")
-            })
+            .map(Attribute::parse_meta)
             .flat_map(|meta| match meta {
-                Meta::Word(_) => panic!("The spirit attribute needs parameters"),
-                Meta::List(MetaList { nested, .. }) => nested.into_iter().map(|ins| match ins {
-                    NestedMeta::Literal(_) => panic!("Unsupported literal inside spirit"),
-                    NestedMeta::Meta(ins) => instruction(struct_name, name, ty, &extract_name, &ins),
-                }),
-                Meta::NameValue(_) => panic!("The spirit attribute can't be 'spirit = ...'"),
+                Ok(Meta::Word(word)) => {
+                    l!(err!(word.span(), "The spirit attribute needs parameters"))
+                }
+                Ok(Meta::List(MetaList { nested, .. })) => {
+                    Either::Right(nested.into_iter().map(|ins| match ins {
+                        NestedMeta::Literal(_) => {
+                            err!(ins.span(), "Unsupported literal inside spirit")
+                        }
+                        NestedMeta::Meta(ins) => {
+                            instruction(struct_name, name, ty, &extract_name, &ins)
+                        }
+                    }))
+                }
+                Ok(meta @ Meta::NameValue(_)) => l!(err!(
+                    meta.span(),
+                    "The spirit attribute can't be 'spirit = ...'"
+                )),
+                Err(e) => l!(e.to_compile_error()),
             })
             .collect::<Vec<_>>(); // Force evaluation for borrow checker.
 
@@ -114,7 +166,9 @@ fn gen_methods(
     });
     quote! {
         fn extension<O>(mut builder: spirit::Builder<O, Self>)
-            -> Result<spirit::Builder<O, Self>, spirit::macro_support::Error>
+            -> std::result::Result<spirit::Builder<O, Self>, spirit::macro_support::Error>
+        where
+            O: spirit::macro_support::StructOpt + Send + Sync + 'static,
         {
             use spirit::extension::Extensible;
             #(#cmds)*
@@ -140,10 +194,9 @@ pub fn spirit_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
             fields: Fields::Named(fields),
             ..
         }) => gen_methods(name, &input.attrs, &fields.named),
-        _ => unimplemented!("Only named structs are supported for now"),
+        _ => err!(name.span(), "Only named structs are supported for now"),
     };
 
-    //panic!("{}", (quote! {
     (quote! {
         impl #impl_generics #name #ty_generics
         #where_clause

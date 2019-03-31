@@ -26,6 +26,7 @@ syn = "~0.15.26"
 [dev-dependencies]
 failure = "~0.1"
 version-sync = "~0.7"
+serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.3", path = "..", features = ["derive"] }
 
 [lib]

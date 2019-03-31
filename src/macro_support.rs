@@ -6,3 +6,5 @@
 
 pub use failure::Error;
 pub use log::Level;
+pub use serde::de::DeserializeOwned;
+pub use structopt::StructOpt;
