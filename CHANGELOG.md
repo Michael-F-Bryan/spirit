@@ -1,3 +1,8 @@
+* Hide the arc-swap from spirit's public interface.
+  - Talk by Arcs directly
+  - The `cfg_store` goes to `spirit_cfg_helpers` crate (bumping that one is much
+    less fuzz).
+
 # spirit-dipstick-0.1.4
 
 * Deal with dipstick upstream API breakage.
