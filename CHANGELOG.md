@@ -1,3 +1,6 @@
+* Remove `failure` from public API
+  - Use the standard library's std::error::Error to communicate with users.
+  - Internally still uses `failure`.
 * Warnings about unused configuration values.
 * Fix handling of non-string config overrides from command line.
 * Error logging macros/functions move to `spirit::error` module.

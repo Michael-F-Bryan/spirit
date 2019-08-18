@@ -301,8 +301,8 @@ where
                 .server
                 .with_graceful_shutdown(inner.receiver)
                 .map_err(move |e| {
-                    let e = e.context(format!("HTTP server {} failed", name));
-                    spirit::log_error!(multi Error, e.into());
+                    let e = e.context(format!("HTTP server {} failed", name)).compat();
+                    spirit::log_error!(multi Error, e);
                 });
             tokio::spawn(server);
         }

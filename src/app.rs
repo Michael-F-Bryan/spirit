@@ -109,7 +109,8 @@ where
     where
         B: FnOnce() -> Result<(), Error> + Send + 'static,
     {
-        if error::log_errors("top-level", || self.run(body)).is_err() {
+        // XXX
+        if error::log_errors("top-level", || self.run(body).map_err(Error::compat)).is_err() {
             process::exit(1);
         }
     }

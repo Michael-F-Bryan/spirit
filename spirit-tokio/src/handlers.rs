@@ -110,7 +110,9 @@ where
     fn poll(&mut self) -> Poll<(), ()> {
         loop {
             let incoming = self.incoming.poll().map_err(|e| {
-                let e = e.context("Listening socket terminated unexpectedly").into();
+                let e = e
+                    .context("Listening socket terminated unexpectedly")
+                    .compat();
                 spirit::log_error!(multi Error, e);
             });
             let connection = try_ready!(incoming);
@@ -123,8 +125,9 @@ where
                     .map_err(move |e| {
                         let e = e
                             .into()
-                            .context(format!("Failed to handle connection on {}", name));
-                        spirit::log_error!(multi Error, e.into());
+                            .context(format!("Failed to handle connection on {}", name))
+                            .compat();
+                        spirit::log_error!(multi Error, e);
                     });
                 tokio::spawn(future);
             } else {

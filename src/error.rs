@@ -3,9 +3,10 @@
 //! This module contains utilities around error handling, like convenient error logging and
 //! creation of multi-level errors.
 
-use failure::Error;
+use std::error::Error;
+
 use itertools::Itertools;
-use log::{debug, log, log_enabled, Level};
+use log::{log, Level};
 
 /// How to format errors in logs.
 ///
@@ -26,9 +27,6 @@ pub enum ErrorLogFormat {
     /// If present, trace is printed on debug level.
     SingleLine,
 
-    /// Like [SingleLine][ErrorLogFormat::SingleLine], but without the backtrace.
-    SingleLineWithoutBacktrace,
-
     // Prevent users from accidentally matching against this enum without a catch-all branch.
     #[doc(hidden)]
     #[allow(non_camel_case_types)]
@@ -42,24 +40,25 @@ pub enum ErrorLogFormat {
 ///
 /// This is the low-level version with full customization. You might also be interested in
 /// [`log_errors`] or one of the convenience macro ([`log_error`][macro@log_error]).
-pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) {
+pub fn log_error(level: Level, target: &str, e: &dyn Error, format: ErrorLogFormat) {
+    let mut chain = itertools::unfold(Some(e), |e| {
+        let current = e.take();
+        if let Some(current) = current {
+            *e = current.source();
+        }
+        current
+    });
     // Note: one of the causes is the error itself
     match format {
         ErrorLogFormat::MultiLine => {
-            for cause in e.iter_chain() {
+            for cause in chain {
                 log!(target: target, level, "{}", cause);
             }
         }
-        ErrorLogFormat::SingleLine | ErrorLogFormat::SingleLineWithoutBacktrace => {
-            log!(target: target, level, "{}", e.iter_chain().join("; "));
+        ErrorLogFormat::SingleLine => {
+            log!(target: target, level, "{}", chain.join("; "));
         }
         _ => unreachable!("Non-exhaustive sentinel should not be used"),
-    }
-    if log_enabled!(Level::Debug) && format != ErrorLogFormat::SingleLineWithoutBacktrace {
-        let bt = format!("{}", e.backtrace());
-        if !bt.is_empty() {
-            debug!(target: target, "{}", bt);
-        }
     }
 }
 
@@ -73,7 +72,7 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 /// ```rust
 /// use spirit::log_error;
 ///
-/// let err = failure::err_msg("Something's broken");
+/// let err = std::io::Error::last_os_error();
 ///
 /// log_error!(Warn, err);
 /// ```
@@ -83,13 +82,15 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 #[macro_export]
 macro_rules! log_error {
     ($level: ident, $descr: expr => $err: expr) => {
-        $crate::log_error!(@SingleLineWithoutBacktrace, $level, $err.context($descr).into());
+        // XXX
+        $crate::log_error!(@SingleLine, $level, $err.context($descr).compat());
     };
     ($level: ident, $err: expr) => {
-        $crate::log_error!(@SingleLineWithoutBacktrace, $level, $err);
+        $crate::log_error!(@SingleLine, $level, $err);
     };
     (multi $level: ident, $descr: expr => $err: expr) => {
-        $crate::log_error!(@MultiLine, $level, $err.context($descr).into());
+        // XXX
+        $crate::log_error!(@MultiLine, $level, $err.context($descr).compat());
     };
     (multi $level: ident, $err: expr) => {
         $crate::log_error!(@MultiLine, $level, $err);
@@ -104,6 +105,7 @@ macro_rules! log_error {
     };
 }
 
+// XXX Get rid of failure in this example
 /// A wrapper around a fallible function, logging any returned errors.
 ///
 /// The errors will be logged in the provided target. You may want to provide `module_path!` as the
@@ -115,19 +117,20 @@ macro_rules! log_error {
 /// # Examples
 ///
 /// ```rust
-/// # use failure::{Error, ResultExt};
+/// # use failure::{Compat, Error, ResultExt};
 /// # use spirit::error;
 /// # fn try_to_do_stuff() -> Result<(), Error> { Ok(()) }
 ///
-/// let result = error::log_errors(module_path!(), || {
-///     try_to_do_stuff().context("Didn't manage to do stuff")?;
+/// let result = error::log_errors(module_path!(), || -> Result<(), Compat<_>> {
+///     try_to_do_stuff().context("Didn't manage to do stuff").compat()?;
 ///     Ok(())
 /// });
 /// # let _result = result;
 /// ```
-pub fn log_errors<R, F>(target: &str, f: F) -> Result<R, Error>
+pub fn log_errors<R, E, F>(target: &str, f: F) -> Result<R, E>
 where
-    F: FnOnce() -> Result<R, Error>,
+    F: FnOnce() -> Result<R, E>,
+    E: Error,
 {
     let result = f();
     if let Err(ref e) = result {
@@ -138,17 +141,19 @@ where
 
 #[cfg(test)]
 mod tests {
+    use failure::Fail;
+
     #[test]
     fn log_error_macro() {
-        let err = failure::err_msg("A test error");
+        let err = failure::err_msg("A test error").compat();
         log_error!(Debug, err);
-        log_error!(Debug, &err);
-        log_error!(Debug, err.context("Another level").into());
+        let err = err.context("Another level").compat();
+        log_error!(Debug, err);
         let err = failure::err_msg("A test error");
         log_error!(Debug, "Another level" => err);
         let multi_err = failure::err_msg("A test error")
             .context("Another level")
-            .into();
+            .compat();
         log_error!(multi Info, multi_err);
     }
 }

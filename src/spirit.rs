@@ -247,12 +247,12 @@ where
                             error!("{}", e);
                             errors += e.errors.len();
                             for e in e.errors {
-                                crate::log_error!(multi Error, e);
+                                crate::log_error!(multi Error, e.compat());
                             }
                         }
                         Err(e) => {
                             errors += 1;
-                            crate::log_error!(multi Error, e);
+                            crate::log_error!(multi Error, e.compat());
                         }
                     }
                 }
@@ -367,7 +367,9 @@ where
             debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
-                    let _ = error::log_errors(module_path!(), || self.config_reload());
+                    let _ = error::log_errors(module_path!(), || {
+                        self.config_reload().map_err(Error::compat)
+                    });
                     false
                 }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
@@ -971,13 +973,15 @@ where
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
-        let result = error::log_errors("top-level", || {
+        // XXX
+        let inner = || -> Result<(), Error> {
             let me = self?;
             let app = me.build(true)?;
             let spirit = Arc::clone(app.spirit());
             let body = move || body(&spirit);
             app.run(body)
-        });
+        };
+        let result = error::log_errors("top-level", || inner().map_err(Error::compat));
         if result.is_err() {
             process::exit(1);
         }
