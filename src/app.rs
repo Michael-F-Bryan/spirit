@@ -14,8 +14,8 @@ use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
 use crate::bodies::{InnerBody, WrapBody};
+use crate::error;
 use crate::spirit::Spirit;
-use crate::utils;
 
 /// The running application part.
 ///
@@ -109,7 +109,7 @@ where
     where
         B: FnOnce() -> Result<(), Error> + Send + 'static,
     {
-        if utils::log_errors("top-level", || self.run(body)).is_err() {
+        if error::log_errors("top-level", || self.run(body)).is_err() {
             process::exit(1);
         }
     }

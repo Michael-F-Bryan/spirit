@@ -418,6 +418,7 @@ pub mod app;
 pub mod bodies;
 pub mod cfg_loader;
 mod empty;
+pub mod error;
 pub mod extension;
 pub mod fragment;
 #[doc(hidden)]

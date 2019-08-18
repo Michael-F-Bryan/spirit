@@ -22,9 +22,9 @@ use crate::app::App;
 use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
+use crate::error;
 use crate::extension::{Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
-use crate::utils;
 use crate::validation::Action;
 
 #[derive(Debug, Fail)]
@@ -367,7 +367,7 @@ where
             debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
-                    let _ = utils::log_errors(module_path!(), || self.config_reload());
+                    let _ = error::log_errors(module_path!(), || self.config_reload());
                     false
                 }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
@@ -971,7 +971,7 @@ where
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
-        let result = utils::log_errors("top-level", || {
+        let result = error::log_errors("top-level", || {
             let me = self?;
             let app = me.build(true)?;
             let spirit = Arc::clone(app.spirit());

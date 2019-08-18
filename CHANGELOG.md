@@ -1,3 +1,6 @@
+* Warnings about unused configuration values.
+* Fix handling of non-string config overrides from command line.
+* Error logging macros/functions move to `spirit::error` module.
 * Hide the arc-swap from spirit's public interface.
   - Talk by Arcs directly
   - The `cfg_store` goes to `spirit_cfg_helpers` crate (bumping that one is much
